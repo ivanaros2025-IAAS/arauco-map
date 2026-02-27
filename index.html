@@ -461,7 +461,7 @@
             <tr>
               <th>Camino</th>
               <th>Cancha</th>
-              <th>Tipo</th>
+              <th>Medidas</th>
               <th>Situación</th>
               <th>m³</th>
             </tr>
@@ -547,12 +547,18 @@
       <button class="map-btn" onclick="centerOnGPS()" title="Centrar en mi posición" id="center-btn" style="display:none;font-size:14px;">◎</button>
     </div>
 
+    <!-- GPS ALWAYS VISIBLE (no requiere mapa cargado) -->
+    <div id="gps-controls-always" style="position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:6px;">
+      <button class="map-btn" onclick="toggleGPS()" title="Activar GPS" id="gps-btn-always" style="font-size:18px;background:var(--card);border:2px solid var(--border);border-radius:3px;width:44px;height:44px;cursor:pointer;">📍</button>
+      <button class="map-btn" onclick="centerOnGPS()" title="Centrar" id="center-btn-always" style="display:none;font-size:14px;background:var(--card);border:2px solid var(--border);border-radius:3px;width:44px;height:44px;cursor:pointer;">◎</button>
+    </div>
+
     <div class="map-info" id="map-info" style="display:none;">
       <span id="coord-display">UTM 18S · TROPEN EFA [20023]</span>
     </div>
 
     <!-- GPS STATUS BAR -->
-    <div id="gps-bar" style="display:none;position:absolute;top:12px;left:12px;background:var(--ink)cc;color:var(--paper);font-family:'Space Mono',monospace;font-size:10px;padding:7px 12px;border-radius:3px;display:none;align-items:center;gap:8px;">
+    <div id="gps-bar" style="position:absolute;top:12px;left:12px;background:var(--ink)cc;color:var(--paper);font-family:'Space Mono',monospace;font-size:10px;padding:7px 12px;border-radius:3px;display:none;align-items:center;gap:8px;">
       <span id="gps-dot" style="width:8px;height:8px;border-radius:50%;background:#888;flex-shrink:0;display:inline-block;"></span>
       <span id="gps-status">GPS inactivo</span>
     </div>
@@ -1252,7 +1258,7 @@ function updateDataTable() {
     <tr onclick="highlightFeature('${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}')">
       <td>${c.camino}</td>
       <td><strong>${c.id_cancha}</strong></td>
-      <td><span class="tipo-badge tipo-${c.tipo.replace(/[\s.]/g,'')}">${c.tipo}</span></td>
+      <td><span class="tipo-badge tipo-${c.tipo.replace(/[\s.]/g,'')}">${c.largo}×${c.ancho}m</span></td>
       <td><span class="sit-badge sit-${c.situacion.split(' ').pop().toLowerCase()}">${c.situacion}</span></td>
       <td><strong>${c.m3.toLocaleString()}</strong></td>
     </tr>
@@ -1403,13 +1409,17 @@ function toggleGPS() {
 
 function startGPS() {
   state.gpsActive = true;
-  const btn = document.getElementById('gps-btn');
+  const btns = ['gps-btn','gps-btn-always'];
+  btns.forEach(id => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    b.style.background = '#1a73e8';
+    b.style.color = '#fff';
+    b.style.borderColor = '#1a73e8';
+  });
   const bar = document.getElementById('gps-bar');
   const dot = document.getElementById('gps-dot');
   const status = document.getElementById('gps-status');
-  btn.style.background = '#1a73e8';
-  btn.style.color = '#fff';
-  btn.style.borderColor = '#1a73e8';
   bar.style.display = 'flex';
   dot.style.background = '#f39c12';
   status.textContent = 'Buscando señal GPS...';
@@ -1421,34 +1431,49 @@ function startGPS() {
       state.gpsAccuracy = pos.coords.accuracy;
 
       dot.style.background = '#27ae60';
-      status.textContent = `GPS activo · ±${Math.round(pos.coords.accuracy)}m`;
-      document.getElementById('center-btn').style.display = 'grid';
+      const acc = Math.round(pos.coords.accuracy);
+      status.textContent = `GPS activo · ±${acc}m`;
 
-      // Show lat/lng in coord display
-      document.getElementById('coord-display').textContent =
-        `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)} · ±${Math.round(pos.coords.accuracy)}m`;
+      // Show coords always, even without map
+      const coordEl = document.getElementById('coord-display');
+      if (coordEl) coordEl.textContent =
+        `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)} · ±${acc}m`;
+      document.getElementById('map-info').style.display = 'block';
 
-      // Check if inside map bounds
+      // Show center button
+      ['center-btn','center-btn-always'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.style.display = 'grid';
+      });
+
+      // Check bounds
       if (state.geoData) {
         const b = state.geoData.bounds;
         const inside = pos.coords.latitude >= b.minLat && pos.coords.latitude <= b.maxLat &&
                        pos.coords.longitude >= b.minLng && pos.coords.longitude <= b.maxLng;
         if (!inside) {
           dot.style.background = '#f39c12';
-          status.textContent = `GPS activo · fuera del predio · ±${Math.round(pos.coords.accuracy)}m`;
+          status.textContent = `GPS activo · fuera del predio · ±${acc}m`;
         }
+        renderMap();
       }
-
-      if (state.geoData) renderMap();
     },
     (err) => {
+      const dot = document.getElementById('gps-dot');
+      const status = document.getElementById('gps-status');
       dot.style.background = '#e74c3c';
-      status.textContent = 'Error GPS: ' + (err.code === 1 ? 'Permiso denegado' : err.message);
+      if (err.code === 1) {
+        status.textContent = 'Permiso GPS denegado — actívalo en Config. del navegador';
+      } else if (err.code === 2) {
+        status.textContent = 'Sin señal GPS — muévete a zona con cobertura';
+      } else {
+        status.textContent = 'Error GPS: ' + err.message;
+      }
     },
     {
       enableHighAccuracy: true,
       maximumAge: 3000,
-      timeout: 15000
+      timeout: 30000   // más tiempo de espera en zonas con señal débil
     }
   );
 }
@@ -1461,13 +1486,22 @@ function stopGPS() {
   state.gpsActive = false;
   state.gpsLat = null;
   state.gpsLng = null;
-  const btn = document.getElementById('gps-btn');
-  btn.style.background = '';
-  btn.style.color = '';
-  btn.style.borderColor = '';
+
+  ['gps-btn','gps-btn-always'].forEach(id => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    b.style.background = '';
+    b.style.color = '';
+    b.style.borderColor = '';
+  });
+  ['center-btn','center-btn-always'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.style.display = 'none';
+  });
+
   document.getElementById('gps-bar').style.display = 'none';
-  document.getElementById('center-btn').style.display = 'none';
-  document.getElementById('coord-display').textContent = 'UTM 18S · TROPEN EFA [20023]';
+  const coordEl = document.getElementById('coord-display');
+  if (coordEl) coordEl.textContent = 'UTM 18S · TROPEN EFA [20023]';
   if (state.geoData) renderMap();
 }
 
