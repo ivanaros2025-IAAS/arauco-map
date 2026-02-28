@@ -4,6 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ARAUCO — GeoMap Processor</title>
+<script>
+// Registrar Service Worker para funcionamiento offline
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[App] Service Worker registrado:', reg.scope);
+        // Detectar actualización disponible
+        reg.addEventListener('updatefound', () => {
+          const newSW = reg.installing;
+          newSW.addEventListener('statechange', () => {
+            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+              mostrarBannerActualizacion();
+            }
+          });
+        });
+      })
+      .catch(err => console.warn('[App] SW no disponible:', err));
+  });
+}
+
+function mostrarBannerActualizacion() {
+  const b = document.getElementById('update-banner');
+  if (b) b.style.display = 'flex';
+}
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
 
@@ -391,9 +417,17 @@
     <p>BOSQUES ARAUCO — SISTEMA DE CUBICACIÓN DE CAMINOS</p>
   </div>
   <div class="header-right">
+    <span class="badge" id="offline-badge" style="display:none;border-color:#f39c12;color:#f39c12;">SIN INTERNET</span>
+    <span class="badge" id="cache-badge" style="display:none;border-color:var(--lime);color:var(--lime);">✓ OFFLINE LISTO</span>
     <span class="badge" id="status-badge">SIN DATOS</span>
   </div>
 </header>
+
+<!-- BANNER ACTUALIZACIÓN -->
+<div id="update-banner" style="display:none;background:#1a73e8;color:#fff;padding:8px 16px;font-family:'Space Mono',monospace;font-size:11px;align-items:center;justify-content:space-between;gap:12px;">
+  <span>🔄 Nueva versión disponible</span>
+  <button onclick="window.location.reload()" style="background:#fff;color:#1a73e8;border:none;padding:4px 12px;border-radius:2px;cursor:pointer;font-weight:700;font-size:11px;">ACTUALIZAR</button>
+</div>
 
 <div class="app">
   <!-- LEFT PANEL -->
@@ -1076,35 +1110,46 @@ function renderMap() {
     const gx = sx + pdfX * scl * state.zoom;
     const gy = sy + imgH * state.zoom - pdfY * scl * state.zoom;
 
-    // Accuracy circle
+    // Accuracy circle - translúcido pero visible
     if (state.gpsAccuracy) {
       const metersPerDeg = 111320;
       const accPx = (state.gpsAccuracy / metersPerDeg) / (bounds.maxLat - bounds.minLat) * imgH * scl * state.zoom;
       ctx.beginPath();
-      ctx.arc(gx, gy, accPx, 0, Math.PI*2);
-      ctx.fillStyle = '#1a73e820';
+      ctx.arc(gx, gy, Math.max(accPx, 8), 0, Math.PI*2);
+      ctx.fillStyle = '#ff000015';
       ctx.fill();
-      ctx.strokeStyle = '#1a73e840';
+      ctx.strokeStyle = '#ff000055';
       ctx.lineWidth = 1;
+      ctx.setLineDash([3,3]);
       ctx.stroke();
+      ctx.setLineDash([]);
     }
 
-    // Outer white ring
-    ctx.beginPath();
-    ctx.arc(gx, gy, 11, 0, Math.PI*2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
+    // Cruz de mira exterior (4 líneas perpendiculares)
+    const cruzLen = 14;
+    const cruzGap = 5;
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 1.5;
+    // arriba
+    ctx.beginPath(); ctx.moveTo(gx, gy - cruzGap); ctx.lineTo(gx, gy - cruzGap - cruzLen); ctx.stroke();
+    // abajo
+    ctx.beginPath(); ctx.moveTo(gx, gy + cruzGap); ctx.lineTo(gx, gy + cruzGap + cruzLen); ctx.stroke();
+    // izquierda
+    ctx.beginPath(); ctx.moveTo(gx - cruzGap, gy); ctx.lineTo(gx - cruzGap - cruzLen, gy); ctx.stroke();
+    // derecha
+    ctx.beginPath(); ctx.moveTo(gx + cruzGap, gy); ctx.lineTo(gx + cruzGap + cruzLen, gy); ctx.stroke();
 
-    // Blue solid dot
+    // Anillo exterior blanco fino (separador)
     ctx.beginPath();
-    ctx.arc(gx, gy, 8, 0, Math.PI*2);
-    ctx.fillStyle = '#1a73e8';
-    ctx.fill();
+    ctx.arc(gx, gy, 5, 0, Math.PI*2);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
-    // Inner white core
+    // Punto central pequeño e intenso
     ctx.beginPath();
-    ctx.arc(gx, gy, 3, 0, Math.PI*2);
-    ctx.fillStyle = '#fff';
+    ctx.arc(gx, gy, 4, 0, Math.PI*2);
+    ctx.fillStyle = '#ff0000';
     ctx.fill();
   }
 
@@ -1166,7 +1211,13 @@ function handleTouchMove(e) {
 }
 function handleTouchEnd(e) {
   if (e.changedTouches.length === 1) {
-    handleMapClick({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY });
+    // Pasar evento con flag de touch para radio más grande
+    const fakeEvent = {
+      clientX: e.changedTouches[0].clientX,
+      clientY: e.changedTouches[0].clientY,
+      sourceCapabilities: { firesTouchEvents: true }
+    };
+    handleMapClick(fakeEvent);
   }
   lastTouch = null;
 }
@@ -1191,8 +1242,12 @@ function handleMapClick(e) {
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
 
+  // Radio más grande en touch (dedos) vs mouse
+  const isTouchEvent = e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents;
+  const hitRadius = isTouchEvent ? 40 : 22;
+
   // Find nearest feature
-  let closest = null, minDist = 20;
+  let closest = null, minDist = hitRadius;
   const filtered = state.filter === 'all' ? state.features : state.features.filter(f => f.tipo === state.filter);
   filtered.forEach(f => {
     if (f._cx === undefined) return;
@@ -1237,13 +1292,30 @@ function showPopup(f, screenX, screenY) {
   }
   document.getElementById('popup-body').innerHTML = rows;
 
-  // Position popup
-  let px = screenX - rect.left + 12;
-  let py = screenY - rect.top - 20;
-  if (px + 240 > rect.width) px = screenX - rect.left - 252;
-  if (py + 280 > rect.height) py = py - 280;
+  // Position popup — siempre dentro del área visible
+  const popup = document.getElementById('feature-popup');
+  popup.style.visibility = 'hidden';
+  popup.classList.add('visible');
+  const popW = popup.offsetWidth || 240;
+  const popH = popup.offsetHeight || 280;
+  popup.classList.remove('visible');
+  popup.style.visibility = '';
+
+  const margin = 10;
+  let px = screenX - rect.left + 14;
+  let py = screenY - rect.top - popH / 2;
+
+  // Si se sale por la derecha → mostrar a la izquierda del punto
+  if (px + popW + margin > rect.width) px = screenX - rect.left - popW - 14;
+  // Si se sale por abajo → subir
+  if (py + popH + margin > rect.height) py = rect.height - popH - margin;
+  // Si se sale por arriba → bajar
+  if (py < margin) py = margin;
+  // Si se sale por la izquierda
+  if (px < margin) px = margin;
+
   popup.style.left = px + 'px';
-  popup.style.top = Math.max(8, py) + 'px';
+  popup.style.top = py + 'px';
   popup.classList.add('visible');
 }
 function closePopup() { document.getElementById('feature-popup').classList.remove('visible'); }
@@ -1530,6 +1602,32 @@ function centerOnGPS() {
   state.panY += canvas.height / 2 - gy;
   renderMap();
 }
+
+// ══════════════════════════════════════════════
+// ESTADO ONLINE / OFFLINE
+// ══════════════════════════════════════════════
+function actualizarEstadoRed() {
+  const offBadge = document.getElementById('offline-badge');
+  const cacheBadge = document.getElementById('cache-badge');
+  if (!navigator.onLine) {
+    offBadge.style.display = 'inline';
+    cacheBadge.style.display = 'none';
+  } else {
+    offBadge.style.display = 'none';
+    if ('caches' in window) {
+      caches.has('arauco-geomap-v1').then(tiene => {
+        cacheBadge.style.display = tiene ? 'inline' : 'none';
+      });
+    }
+  }
+}
+
+window.addEventListener('online', actualizarEstadoRed);
+window.addEventListener('offline', actualizarEstadoRed);
+window.addEventListener('load', () => {
+  actualizarEstadoRed();
+  setTimeout(actualizarEstadoRed, 3000);
+});
 </script>
 </body>
 </html>
