@@ -493,11 +493,11 @@ function mostrarBannerActualizacion() {
         <table class="data-table" id="data-table">
           <thead>
             <tr>
-              <th>Camino</th>
-              <th>Cancha</th>
-              <th>Medidas</th>
-              <th>Situación</th>
-              <th>m³</th>
+              <th>Cam./Cancha</th>
+              <th>Tipo/Medidas</th>
+              <th>m³ Total</th>
+              <th>% Avance</th>
+              <th>Saldo m³</th>
             </tr>
           </thead>
           <tbody id="table-body">
@@ -508,10 +508,10 @@ function mostrarBannerActualizacion() {
         <p class="section-title" style="margin-top:16px;">Resumen por Camino</p>
         <table class="data-table" id="caminos-table">
           <thead>
-            <tr><th>Camino</th><th>Constr.(ml)</th><th>Ens.(ml)</th><th>Total m³</th></tr>
+            <tr><th>Camino</th><th>Constr.(ml)</th><th>Ens.(ml)</th><th>Total m³</th><th>% Avance</th><th>Saldo m³</th></tr>
           </thead>
           <tbody id="caminos-body">
-            <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;">Sin datos</td></tr>
+            <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;">Sin datos</td></tr>
           </tbody>
         </table>
       </div>
@@ -624,9 +624,9 @@ function mostrarBannerActualizacion() {
 const state = {
   geoFile: null,
   datosFile: null,
-  geoData: null,      // parsed GeoPDF info
-  datosData: null,    // parsed cubicacion data
-  features: [],       // combined features
+  geoData: null,
+  datosData: null,
+  features: [],
   filter: 'all',
   showLabels: true,
   zoom: 1,
@@ -635,6 +635,7 @@ const state = {
   lastX: 0, lastY: 0,
   mapImage: null,
   mapBounds: null,
+  avances: {}, // { id_cancha: porcentaje }
   // GPS
   gpsActive: false,
   gpsWatchId: null,
@@ -963,6 +964,9 @@ async function procesarArchivos() {
     document.getElementById('status-badge').style.borderColor = 'var(--lime)';
     document.getElementById('status-badge').style.color = 'var(--lime)';
     log(`✓ LISTO: ${state.features.length} elementos en el mapa`, 'ok');
+    loadAvances(); // cargar avances guardados
+    updateDataTable(); // re-render canchas con avances
+    updateCaminosTable(); // re-render caminos con avances
 
     // Switch to map view
     switchTab('datos');
@@ -1076,8 +1080,11 @@ function renderMap() {
 
     f._cx = cx; f._cy = cy; // cache for hit detection
 
-    const sitColor = SIT_COLORS[f.situacion] || '#888';
-    const tipColor = COLORS[f.tipo] || '#888';
+    const id = f.id;
+    const avance = state.avances[id] || 0;
+    const finalizada = avance >= 100;
+    const sitColor = finalizada ? '#27ae60' : (SIT_COLORS[f.situacion] || '#888');
+    const tipColor = finalizada ? '#27ae60' : (COLORS[f.tipo] || '#888');
     const r = f.type === 'camino' ? 5 : 7;
 
     // Outer ring (situation color)
@@ -1206,23 +1213,36 @@ function endDrag() { state.dragging = false; }
 
 // Touch
 let lastTouch = null;
+let touchStartPos = null;
+let touchMoved = false;
+
 function handleTouchStart(e) {
   if (e.touches.length === 1) {
     lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    touchMoved = false;
   }
 }
 function handleTouchMove(e) {
   e.preventDefault();
   if (e.touches.length === 1 && lastTouch) {
-    state.panX += e.touches[0].clientX - lastTouch.x;
-    state.panY += e.touches[0].clientY - lastTouch.y;
+    const dx = e.touches[0].clientX - lastTouch.x;
+    const dy = e.touches[0].clientY - lastTouch.y;
+    // Si movió más de 8px, es arrastre
+    if (!touchMoved && touchStartPos) {
+      const totalDx = e.touches[0].clientX - touchStartPos.x;
+      const totalDy = e.touches[0].clientY - touchStartPos.y;
+      if (Math.abs(totalDx) > 8 || Math.abs(totalDy) > 8) touchMoved = true;
+    }
+    state.panX += dx;
+    state.panY += dy;
     lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     renderMap();
   }
 }
 function handleTouchEnd(e) {
-  if (e.changedTouches.length === 1) {
-    // Pasar evento con flag de touch para radio más grande
+  if (e.changedTouches.length === 1 && !touchMoved) {
+    // Solo disparar click si no hubo arrastre
     const fakeEvent = {
       clientX: e.changedTouches[0].clientX,
       clientY: e.changedTouches[0].clientY,
@@ -1231,6 +1251,8 @@ function handleTouchEnd(e) {
     handleMapClick(fakeEvent);
   }
   lastTouch = null;
+  touchStartPos = null;
+  touchMoved = false;
 }
 
 // Wheel zoom
@@ -1333,35 +1355,146 @@ function closePopup() { document.getElementById('feature-popup').classList.remov
 // ══════════════════════════════════════════════
 // DATA TABLE
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+// AVANCES — persistencia local
+// ══════════════════════════════════════════════
+function saveAvances() {
+  try { localStorage.setItem('arauco_avances', JSON.stringify(state.avances)); } catch(e) {}
+}
+function loadAvances() {
+  try {
+    const saved = localStorage.getItem('arauco_avances');
+    if (saved) state.avances = JSON.parse(saved);
+  } catch(e) {}
+}
+function setAvance(id, pct) {
+  state.avances[id] = parseInt(pct);
+  saveAvances();
+  updateDataTable();
+  updateStats();
+  renderMap(); // actualiza color en mapa si llegó a 100%
+}
+
 function updateDataTable() {
   const tbody = document.getElementById('table-body');
   const canchas = state.datosData.canchas;
-  tbody.innerHTML = canchas.map(c => `
-    <tr onclick="highlightFeature('${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}')">
-      <td>${c.camino}</td>
-      <td><strong>${c.id_cancha}</strong></td>
-      <td><span class="tipo-badge tipo-${c.tipo.replace(/[\s.]/g,'')}">${c.largo}×${c.ancho}m</span></td>
-      <td><span class="sit-badge sit-${c.situacion.split(' ').pop().toLowerCase()}">${c.situacion}</span></td>
-      <td><strong>${c.m3.toLocaleString()}</strong></td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = canchas.map(c => {
+    const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
+    const avance = state.avances[id] || 0;
+    const saldo = Math.round(c.m3 * (1 - avance / 100));
+    const finalizada = avance >= 100;
+    const sitColor = finalizada ? '#27ae60' : c.situacion.includes('Construir') ? '#c0392b' : '#e8a020';
+
+    // Opciones de avance 0,10,20,...100
+    const opts = [0,10,20,30,40,50,60,70,80,90,100].map(v =>
+      `<option value="${v}" ${avance===v?'selected':''}>${v}%</option>`
+    ).join('');
+
+    return `
+    <tr onclick="highlightFeature('${id}')" style="${finalizada ? 'opacity:0.6;' : ''}">
+      <td>
+        <span style="font-weight:700;color:var(--forest)">C${c.camino}</span>
+        <span style="display:block;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Cancha ${c.id_cancha}</span>
+      </td>
+      <td>
+        <span class="tipo-badge tipo-${c.tipo.replace(/[\s.]/g,'')}">${c.tipo.replace('SK. GRAPPLE','SK.G')}</span>
+        <span style="display:block;font-size:10px;color:var(--muted);margin-top:2px">${c.largo}×${c.ancho}m</span>
+      </td>
+      <td style="font-weight:700">${c.m3.toLocaleString()}</td>
+      <td onclick="event.stopPropagation()">
+        ${finalizada
+          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADA</span>`
+          : `<select onchange="setAvance('${id}', this.value)"
+              style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
+              ${opts}
+            </select>`
+        }
+        ${avance > 0 && !finalizada ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}
+      </td>
+      <td style="font-weight:700;color:${finalizada ? '#27ae60' : saldo < c.m3*0.3 ? '#e8a020' : 'var(--forest)'}">
+        ${finalizada ? '0' : saldo.toLocaleString()}
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 function updateCaminosTable() {
   const tbody = document.getElementById('caminos-body');
   const caminos = state.datosData.caminos.filter(c => c.total_m3 > 0);
-  tbody.innerHTML = caminos.map(c => `
-    <tr><td>C-${c.camino}</td><td>${c.construccion_ml}</td><td>${c.ensanche_ml}</td><td><strong>${c.total_m3.toLocaleString()}</strong></td></tr>
-  `).join('');
+  tbody.innerHTML = caminos.map(c => {
+    const id = `camino_${c.camino}`;
+    const avance = state.avances[id] || 0;
+    const saldo = Math.round(c.total_m3 * (1 - avance / 100));
+    const finalizado = avance >= 100;
+
+    const opts = [0,10,20,30,40,50,60,70,80,90,100].map(v =>
+      `<option value="${v}" ${avance===v?'selected':''}>${v}%</option>`
+    ).join('');
+
+    return `
+    <tr style="${finalizado ? 'opacity:0.6;' : ''}">
+      <td><strong>C-${c.camino}</strong></td>
+      <td>${c.construccion_ml}</td>
+      <td>${c.ensanche_ml}</td>
+      <td><strong>${c.total_m3.toLocaleString()}</strong></td>
+      <td onclick="event.stopPropagation()">
+        ${finalizado
+          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADO</span>`
+          : `<select onchange="setAvanceCamino('${id}', this.value)"
+              style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
+              ${opts}
+            </select>`
+        }
+        ${avance > 0 && !finalizado ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}
+      </td>
+      <td style="font-weight:700;color:${finalizado ? '#27ae60' : saldo < c.total_m3*0.3 ? '#e8a020' : 'var(--forest)'}">
+        ${finalizado ? '0' : saldo.toLocaleString()}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function setAvanceCamino(id, pct) {
+  state.avances[id] = parseInt(pct);
+  saveAvances();
+  updateCaminosTable();
+  updateStats();
+  renderMap();
 }
 
 function updateStats() {
   const canchas = state.datosData.canchas;
   const caminos = state.datosData.caminos.filter(c => c.total_m3 > 0);
-  const totalM3 = canchas.reduce((s,c) => s + c.m3, 0) + caminos.reduce((s,c) => s + c.total_m3, 0);
-  document.getElementById('st-caminos').textContent = caminos.length;
-  document.getElementById('st-canchas').textContent = canchas.length;
-  document.getElementById('st-m3').textContent = (totalM3/1000).toFixed(1) + 'k';
+
+  // m3 ejecutados canchas
+  const ejecutadoCanchas = canchas.reduce((s,c) => {
+    const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
+    return s + Math.round(c.m3 * (state.avances[id] || 0) / 100);
+  }, 0);
+
+  // m3 ejecutados caminos
+  const ejecutadoCaminos = caminos.reduce((s,c) => {
+    const id = `camino_${c.camino}`;
+    return s + Math.round(c.total_m3 * (state.avances[id] || 0) / 100);
+  }, 0);
+
+  const ejecutadoTotal = ejecutadoCanchas + ejecutadoCaminos;
+
+  const finalizadasCanchas = canchas.filter(c => {
+    const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
+    return (state.avances[id] || 0) >= 100;
+  }).length;
+
+  const finalizadosCaminos = caminos.filter(c => (state.avances[`camino_${c.camino}`] || 0) >= 100).length;
+
+  document.getElementById('st-caminos').textContent = `${finalizadosCaminos}/${caminos.length}`;
+  document.getElementById('st-canchas').textContent = `${finalizadasCanchas}/${canchas.length}`;
+  document.getElementById('st-m3').textContent = ejecutadoTotal > 0
+    ? `${(ejecutadoTotal/1000).toFixed(1)}k`
+    : ((canchas.reduce((s,c)=>s+c.m3,0) + caminos.reduce((s,c)=>s+c.total_m3,0))/1000).toFixed(1) + 'k';
+
+  const lbl = document.getElementById('st-m3').parentElement.querySelector('.stat-lbl');
+  if (lbl) lbl.textContent = ejecutadoTotal > 0 ? 'm³ Ejec.' : 'm³ Total';
 }
 
 function filterData(tipo, btn) {
