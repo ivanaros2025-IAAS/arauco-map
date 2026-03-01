@@ -3,15 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>— GeoMap Referencial</title>
+<title>GeoMap — CAMINOS</title>
 <script>
-// Registrar Service Worker para funcionamiento offline
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
         console.log('[App] Service Worker registrado:', reg.scope);
-        // Detectar actualización disponible
         reg.addEventListener('updatefound', () => {
           const newSW = reg.installing;
           newSW.addEventListener('statechange', () => {
@@ -24,7 +22,6 @@ if ('serviceWorker' in navigator) {
       .catch(err => console.warn('[App] SW no disponible:', err));
   });
 }
-
 function mostrarBannerActualizacion() {
   const b = document.getElementById('update-banner');
   if (b) b.style.display = 'flex';
@@ -401,7 +398,92 @@ function mostrarBannerActualizacion() {
     vertical-align: middle;
   }
 
-  @media (max-width: 768px) {
+  /* ─── LOGIN MODAL ─── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(10,20,10,0.82);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal-box {
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-top: 4px solid var(--lime);
+    border-radius: 6px;
+    padding: 32px 28px;
+    width: 320px;
+    max-width: 90vw;
+    text-align: center;
+    box-shadow: 0 20px 60px #0008;
+  }
+  .modal-logo {
+    width: 56px; height: 56px;
+    background: var(--forest);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    margin: 0 auto 16px;
+    font-size: 24px;
+  }
+  .modal-title { font-size: 18px; font-weight: 800; color: var(--forest); margin-bottom: 4px; }
+  .modal-sub { font-size: 11px; color: var(--muted); font-family: 'Space Mono', monospace; margin-bottom: 24px; }
+  .modal-input {
+    width: 100%; padding: 12px 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 16px; font-weight: 700;
+    letter-spacing: 2px;
+    border: 2px solid var(--border);
+    border-radius: 4px; background: var(--paper);
+    color: var(--forest); text-align: center;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+  }
+  .modal-input:focus { outline: none; border-color: var(--moss); }
+  .modal-input.error { border-color: var(--red); animation: shake 0.3s; }
+  .modal-hint { font-size: 10px; color: var(--muted); font-family: 'Space Mono', monospace; margin-bottom: 20px; min-height: 16px; }
+  .modal-hint.err-msg { color: var(--red); }
+  .modal-btn {
+    width: 100%; padding: 13px;
+    background: var(--forest); color: var(--lime);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 1px; border: none;
+    border-radius: 4px; cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.15s;
+  }
+  .modal-btn:hover { background: var(--moss); }
+
+  /* Avatar en header */
+  .user-avatar {
+    width: 32px; height: 32px;
+    background: var(--lime);
+    color: var(--forest);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    cursor: pointer;
+    border: 2px solid var(--forest);
+    flex-shrink: 0;
+  }
+
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+
+  /* Firma en tabla */
+  .firma-cell {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px; color: var(--muted);
+    line-height: 1.4;
+  }
+  .firma-cell strong { color: var(--forest); display: block; }
+
+@media (max-width: 768px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .panel { max-height: 45vh; }
     #map-container { height: 55vh; }
@@ -419,9 +501,30 @@ function mostrarBannerActualizacion() {
   <div class="header-right">
     <span class="badge" id="offline-badge" style="display:none;border-color:#f39c12;color:#f39c12;">SIN INTERNET</span>
     <span class="badge" id="cache-badge" style="display:none;border-color:var(--lime);color:var(--lime);">✓ OFFLINE LISTO</span>
+    <span class="badge" id="sync-badge" style="display:none;">☁ SYNC</span>
     <span class="badge" id="status-badge">SIN DATOS</span>
+    <div class="user-avatar" id="user-avatar" title="Operador activo" style="display:none" onclick="mostrarInfoOperador()">??</div>
   </div>
 </header>
+
+<!-- MODAL LOGIN -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal-box">
+    <div class="modal-logo">🌲</div>
+    <div class="modal-title">Identificación</div>
+    <div class="modal-sub">CAMINOS- ARAUCO · CONTROL AVANCES</div>
+    <input
+      class="modal-input" id="rut-input"
+      type="text" placeholder="12.345.678-9"
+      maxlength="12"
+      oninput="formatearRut(this)"
+      onkeydown="if(event.key==='Enter') validarRut()"
+      autocomplete="off"
+    >
+    <div class="modal-hint" id="rut-hint">Ingresa tu RUT para continuar</div>
+    <button class="modal-btn" onclick="validarRut()">▶ INGRESAR</button>
+  </div>
+</div>
 
 <!-- BANNER ACTUALIZACIÓN -->
 <div id="update-banner" style="display:none;background:#1a73e8;color:#fff;padding:8px 16px;font-family:'Space Mono',monospace;font-size:11px;align-items:center;justify-content:space-between;gap:12px;">
@@ -645,8 +748,115 @@ const state = {
 };
 
 // ══════════════════════════════════════════════
-// UI HELPERS
+// OPERADORES — reemplazar RUTs por los reales
 // ══════════════════════════════════════════════
+const OPERADORES = {
+  '20929865-1': { nombre: 'Bastían Avila',   iniciales: 'BA', admin: false },
+  '18369526-6': { nombre: 'José Navarrete',  iniciales: 'JN', admin: false },
+  '9683410-1': { nombre:  'Iván Aros',       iniciales: 'IA', admin: false },
+  '14567890-k': { nombre: 'Jorge Campos',    iniciales: 'JC', admin: false },
+  '11111111-1': { nombre: 'Supervisor',      iniciales: 'SV', admin: true  }, // ADMIN
+};
+
+let operadorActivo = null; // { rut, nombre, iniciales, admin }
+
+// ── Formatear RUT mientras escribe ──
+function formatearRut(input) {
+  let val = input.value.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (val.length > 9) val = val.slice(0, 9);
+  if (val.length > 1) {
+    const cuerpo = val.slice(0, -1);
+    const dv = val.slice(-1);
+    let fmt = '';
+    let cnt = 0;
+    for (let i = cuerpo.length - 1; i >= 0; i--) {
+      fmt = cuerpo[i] + fmt;
+      cnt++;
+      if (cnt % 3 === 0 && i !== 0) fmt = '.' + fmt;
+    }
+    input.value = fmt + '-' + dv;
+  } else {
+    input.value = val;
+  }
+  // limpiar error
+  input.classList.remove('error');
+  document.getElementById('rut-hint').className = 'modal-hint';
+  document.getElementById('rut-hint').textContent = 'Ingresa tu RUT para continuar';
+}
+
+// ── Validar RUT al presionar Ingresar ──
+function validarRut() {
+  const input = document.getElementById('rut-input');
+  const rutLimpio = input.value.replace(/\./g, '').replace(/-/g, '').toLowerCase();
+  // formato esperado en clave: sin puntos, con guión, minúscula
+  const rutKey = rutLimpio.slice(0, -1) + '-' + rutLimpio.slice(-1);
+
+  const operador = OPERADORES[rutKey];
+  if (!operador) {
+    input.classList.add('error');
+    const hint = document.getElementById('rut-hint');
+    hint.className = 'modal-hint err-msg';
+    hint.textContent = 'RUT no registrado. Contacta al supervisor.';
+    setTimeout(() => input.classList.remove('error'), 500);
+    return;
+  }
+
+  // ✅ Acceso autorizado
+  operadorActivo = { rut: rutKey, ...operador };
+  try { localStorage.setItem('arauco_operador', JSON.stringify(operadorActivo)); } catch(e) {}
+
+  // Mostrar avatar
+  const avatar = document.getElementById('user-avatar');
+  avatar.textContent = operador.iniciales;
+  avatar.style.display = 'grid';
+  avatar.title = operador.nombre + (operador.admin ? ' · ADMIN' : '');
+
+  // Cerrar modal
+  document.getElementById('login-modal').classList.add('hidden');
+
+  // Si ya hay datos cargados, refrescar tablas con permisos correctos
+  if (state.datosData) {
+    updateDataTable();
+    updateCaminosTable();
+  }
+}
+
+function mostrarInfoOperador() {
+  if (!operadorActivo) return;
+  const tipo = operadorActivo.admin ? '👑 ADMINISTRADOR' : '👷 Operador';
+  alert(`${tipo}\n${operadorActivo.nombre}\nRUT: ${operadorActivo.rut}`);
+}
+
+// ── Mostrar modal al procesar archivos ──
+function pedirIdentificacion() {
+  return new Promise((resolve) => {
+    // Si ya hay operador activo en sesión, usar ese
+    if (operadorActivo) { resolve(); return; }
+    // Intentar recuperar de localStorage
+    try {
+      const saved = localStorage.getItem('arauco_operador');
+      if (saved) {
+        operadorActivo = JSON.parse(saved);
+        const avatar = document.getElementById('user-avatar');
+        avatar.textContent = operadorActivo.iniciales;
+        avatar.style.display = 'grid';
+        avatar.title = operadorActivo.nombre + (operadorActivo.admin ? ' · ADMIN' : '');
+        resolve(); return;
+      }
+    } catch(e) {}
+
+    // Mostrar modal y esperar
+    document.getElementById('login-modal').classList.remove('hidden');
+    document.getElementById('rut-input').focus();
+
+    // Polling: esperar hasta que el operador se identifique
+    const check = setInterval(() => {
+      if (operadorActivo) { clearInterval(check); resolve(); }
+    }, 200);
+  });
+}
+
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) => {
     const tabs = ['cargar','datos','exportar'];
@@ -928,6 +1138,16 @@ async function procesarArchivos() {
   btn.textContent = '⏳ Procesando...';
 
   try {
+    // ── Identificación obligatoria ──
+    await pedirIdentificacion();
+
+    // ── Si ya había datos previos, resetear avances ──
+    if (state.datosData) {
+      state.avances = {};
+      saveAvances();
+      log('Nuevos archivos detectados — avances reseteados', 'info');
+    }
+
     setProgress(10);
     log('Cargando motor PDF...');
 
@@ -1356,23 +1576,168 @@ function closePopup() { document.getElementById('feature-popup').classList.remov
 // DATA TABLE
 // ══════════════════════════════════════════════
 // ══════════════════════════════════════════════
-// AVANCES — persistencia local
 // ══════════════════════════════════════════════
+// FIREBASE — Sync en tiempo real
+// ══════════════════════════════════════════════
+const FB_URL = 'https://geomap-502ff-default-rtdb.firebaseio.com/avances.json';
+let fbSyncInterval = null;
+let pendienteSync = false;
+
+// Guardar: primero localStorage (inmediato), luego Firebase si hay internet
 function saveAvances() {
   try { localStorage.setItem('arauco_avances', JSON.stringify(state.avances)); } catch(e) {}
+  if (navigator.onLine) {
+    syncFirebase();
+  } else {
+    pendienteSync = true;
+    mostrarBadgeSync('pending');
+  }
 }
-function loadAvances() {
+
+// Cargar: Firebase tiene prioridad, localStorage como fallback offline
+async function loadAvances() {
+  // Primero cargo localStorage para tener algo inmediato
   try {
     const saved = localStorage.getItem('arauco_avances');
     if (saved) state.avances = JSON.parse(saved);
   } catch(e) {}
+
+  // Luego intento Firebase
+  if (navigator.onLine) {
+    try {
+      const res = await fetch(FB_URL);
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          state.avances = data;
+          localStorage.setItem('arauco_avances', JSON.stringify(state.avances));
+          mostrarBadgeSync('ok');
+          updateDataTable();
+          updateCaminosTable();
+          updateStats();
+        }
+      }
+    } catch(e) {
+      console.warn('[Firebase] Sin conexión, usando localStorage');
+      mostrarBadgeSync('offline');
+    }
+  } else {
+    mostrarBadgeSync('offline');
+  }
+
+  // Escuchar cambios en tiempo real (polling cada 15s)
+  if (fbSyncInterval) clearInterval(fbSyncInterval);
+  fbSyncInterval = setInterval(async () => {
+    if (!navigator.onLine) return;
+    try {
+      const res = await fetch(FB_URL);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && JSON.stringify(data) !== JSON.stringify(state.avances)) {
+        state.avances = data;
+        localStorage.setItem('arauco_avances', JSON.stringify(state.avances));
+        updateDataTable();
+        updateCaminosTable();
+        updateStats();
+        mostrarBadgeSync('ok');
+      }
+    } catch(e) {}
+  }, 15000);
+}
+
+async function syncFirebase() {
+  try {
+    const res = await fetch(FB_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state.avances)
+    });
+    if (res.ok) {
+      pendienteSync = false;
+      mostrarBadgeSync('ok');
+    }
+  } catch(e) {
+    pendienteSync = true;
+    mostrarBadgeSync('pending');
+  }
+}
+
+// Sincronizar cuando vuelve internet
+window.addEventListener('online', () => {
+  if (pendienteSync) {
+    syncFirebase();
+  }
+  mostrarBadgeSync(pendienteSync ? 'pending' : 'ok');
+});
+window.addEventListener('offline', () => mostrarBadgeSync('offline'));
+
+function mostrarBadgeSync(estado) {
+  const b = document.getElementById('sync-badge');
+  if (!b) return;
+  if (estado === 'ok') {
+    b.style.display = 'inline';
+    b.style.borderColor = 'var(--lime)';
+    b.style.color = 'var(--lime)';
+    b.textContent = '☁ SYNC';
+  } else if (estado === 'pending') {
+    b.style.display = 'inline';
+    b.style.borderColor = '#f39c12';
+    b.style.color = '#f39c12';
+    b.textContent = '⏳ SYNC';
+  } else {
+    b.style.display = 'inline';
+    b.style.borderColor = 'var(--muted)';
+    b.style.color = 'var(--muted)';
+    b.textContent = '✗ OFFLINE';
+  }
 }
 function setAvance(id, pct) {
-  state.avances[id] = parseInt(pct);
+  if (!operadorActivo) { alert('Debes identificarte primero.'); return; }
+
+  const registro = state.avances[id];
+  // Si ya fue registrado por otro operador y no es admin → bloquear
+  if (registro && registro.rut && registro.rut !== operadorActivo.rut && !operadorActivo.admin) {
+    alert(`Este avance fue registrado por ${registro.nombre}.\nSolo el supervisor puede modificarlo.`);
+    updateDataTable(); // revertir visual
+    return;
+  }
+
+  state.avances[id] = {
+    pct: parseInt(pct),
+    rut: operadorActivo.rut,
+    nombre: operadorActivo.nombre,
+    iniciales: operadorActivo.iniciales,
+    fecha: new Date().toLocaleDateString('es-CL'),
+    hora: new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+  };
   saveAvances();
   updateDataTable();
   updateStats();
-  renderMap(); // actualiza color en mapa si llegó a 100%
+  renderMap();
+}
+
+function setAvanceCamino(id, pct) {
+  if (!operadorActivo) { alert('Debes identificarte primero.'); return; }
+
+  const registro = state.avances[id];
+  if (registro && registro.rut && registro.rut !== operadorActivo.rut && !operadorActivo.admin) {
+    alert(`Este avance fue registrado por ${registro.nombre}.\nSolo el supervisor puede modificarlo.`);
+    updateCaminosTable();
+    return;
+  }
+
+  state.avances[id] = {
+    pct: parseInt(pct),
+    rut: operadorActivo.rut,
+    nombre: operadorActivo.nombre,
+    iniciales: operadorActivo.iniciales,
+    fecha: new Date().toLocaleDateString('es-CL'),
+    hora: new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
+  };
+  saveAvances();
+  updateCaminosTable();
+  updateStats();
+  renderMap();
 }
 
 function updateDataTable() {
@@ -1380,18 +1745,28 @@ function updateDataTable() {
   const canchas = state.datosData.canchas;
   tbody.innerHTML = canchas.map(c => {
     const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
-    const avance = state.avances[id] || 0;
+    const reg = state.avances[id];
+    const avance = reg ? (typeof reg === 'object' ? reg.pct : reg) : 0;
     const saldo = Math.round(c.m3 * (1 - avance / 100));
     const finalizada = avance >= 100;
-    const sitColor = finalizada ? '#27ae60' : c.situacion.includes('Construir') ? '#c0392b' : '#e8a020';
 
-    // Opciones de avance 0,10,20,...100
+    // ¿Puede este operador editar este registro?
+    const puedeEditar = operadorActivo && (
+      !reg || !reg.rut ||
+      reg.rut === operadorActivo.rut ||
+      operadorActivo.admin
+    );
+
     const opts = [0,10,20,30,40,50,60,70,80,90,100].map(v =>
       `<option value="${v}" ${avance===v?'selected':''}>${v}%</option>`
     ).join('');
 
+    const firma = reg && reg.nombre
+      ? `<div class="firma-cell"><strong>${reg.iniciales}</strong>${reg.fecha} ${reg.hora}</div>`
+      : '';
+
     return `
-    <tr onclick="highlightFeature('${id}')" style="${finalizada ? 'opacity:0.6;' : ''}">
+    <tr onclick="highlightFeature('${id}')" style="${finalizada ? 'opacity:0.65;' : ''}">
       <td>
         <span style="font-weight:700;color:var(--forest)">C${c.camino}</span>
         <span style="display:block;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Cancha ${c.id_cancha}</span>
@@ -1403,13 +1778,16 @@ function updateDataTable() {
       <td style="font-weight:700">${c.m3.toLocaleString()}</td>
       <td onclick="event.stopPropagation()">
         ${finalizada
-          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADA</span>`
-          : `<select onchange="setAvance('${id}', this.value)"
-              style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
-              ${opts}
-            </select>`
+          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADA</span>${firma}`
+          : puedeEditar
+            ? `<select onchange="setAvance('${id}', this.value)"
+                style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
+                ${opts}
+              </select>${firma}
+              ${avance > 0 ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}`
+            : `<span style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--amber)">${avance}%</span>${firma}
+               <div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--amber);border-radius:2px"></div></div>`
         }
-        ${avance > 0 && !finalizada ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}
       </td>
       <td style="font-weight:700;color:${finalizada ? '#27ae60' : saldo < c.m3*0.3 ? '#e8a020' : 'var(--forest)'}">
         ${finalizada ? '0' : saldo.toLocaleString()}
@@ -1423,29 +1801,43 @@ function updateCaminosTable() {
   const caminos = state.datosData.caminos.filter(c => c.total_m3 > 0);
   tbody.innerHTML = caminos.map(c => {
     const id = `camino_${c.camino}`;
-    const avance = state.avances[id] || 0;
+    const reg = state.avances[id];
+    const avance = reg ? (typeof reg === 'object' ? reg.pct : reg) : 0;
     const saldo = Math.round(c.total_m3 * (1 - avance / 100));
     const finalizado = avance >= 100;
+
+    const puedeEditar = operadorActivo && (
+      !reg || !reg.rut ||
+      reg.rut === operadorActivo.rut ||
+      operadorActivo.admin
+    );
 
     const opts = [0,10,20,30,40,50,60,70,80,90,100].map(v =>
       `<option value="${v}" ${avance===v?'selected':''}>${v}%</option>`
     ).join('');
 
+    const firma = reg && reg.nombre
+      ? `<div class="firma-cell"><strong>${reg.iniciales}</strong>${reg.fecha} ${reg.hora}</div>`
+      : '';
+
     return `
-    <tr style="${finalizado ? 'opacity:0.6;' : ''}">
+    <tr style="${finalizado ? 'opacity:0.65;' : ''}">
       <td><strong>C-${c.camino}</strong></td>
       <td>${c.construccion_ml}</td>
       <td>${c.ensanche_ml}</td>
       <td><strong>${c.total_m3.toLocaleString()}</strong></td>
       <td onclick="event.stopPropagation()">
         ${finalizado
-          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADO</span>`
-          : `<select onchange="setAvanceCamino('${id}', this.value)"
-              style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
-              ${opts}
-            </select>`
+          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#27ae60;font-weight:700">✓ FINALIZADO</span>${firma}`
+          : puedeEditar
+            ? `<select onchange="setAvanceCamino('${id}', this.value)"
+                style="font-family:'Space Mono',monospace;font-size:11px;padding:4px 2px;border:1px solid var(--border);border-radius:3px;background:var(--paper);color:var(--forest);width:68px;cursor:pointer;">
+                ${opts}
+              </select>${firma}
+              ${avance > 0 ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}`
+            : `<span style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--amber)">${avance}%</span>${firma}
+               <div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--amber);border-radius:2px"></div></div>`
         }
-        ${avance > 0 && !finalizado ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px"><div style="width:${avance}%;height:100%;background:var(--lime);border-radius:2px"></div></div>` : ''}
       </td>
       <td style="font-weight:700;color:${finalizado ? '#27ae60' : saldo < c.total_m3*0.3 ? '#e8a020' : 'var(--forest)'}">
         ${finalizado ? '0' : saldo.toLocaleString()}
@@ -1454,38 +1846,33 @@ function updateCaminosTable() {
   }).join('');
 }
 
-function setAvanceCamino(id, pct) {
-  state.avances[id] = parseInt(pct);
-  saveAvances();
-  updateCaminosTable();
-  updateStats();
-  renderMap();
+function getPct(id) {
+  const reg = state.avances[id];
+  if (!reg) return 0;
+  return typeof reg === 'object' ? reg.pct : reg;
 }
 
 function updateStats() {
   const canchas = state.datosData.canchas;
   const caminos = state.datosData.caminos.filter(c => c.total_m3 > 0);
 
-  // m3 ejecutados canchas
   const ejecutadoCanchas = canchas.reduce((s,c) => {
     const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
-    return s + Math.round(c.m3 * (state.avances[id] || 0) / 100);
+    return s + Math.round(c.m3 * getPct(id) / 100);
   }, 0);
 
-  // m3 ejecutados caminos
   const ejecutadoCaminos = caminos.reduce((s,c) => {
-    const id = `camino_${c.camino}`;
-    return s + Math.round(c.total_m3 * (state.avances[id] || 0) / 100);
+    return s + Math.round(c.total_m3 * getPct(`camino_${c.camino}`) / 100);
   }, 0);
 
   const ejecutadoTotal = ejecutadoCanchas + ejecutadoCaminos;
 
   const finalizadasCanchas = canchas.filter(c => {
     const id = `${c.tipo.replace(/\s/g,'')}_${c.camino}_${c.id_cancha}`;
-    return (state.avances[id] || 0) >= 100;
+    return getPct(id) >= 100;
   }).length;
 
-  const finalizadosCaminos = caminos.filter(c => (state.avances[`camino_${c.camino}`] || 0) >= 100).length;
+  const finalizadosCaminos = caminos.filter(c => getPct(`camino_${c.camino}`) >= 100).length;
 
   document.getElementById('st-caminos').textContent = `${finalizadosCaminos}/${caminos.length}`;
   document.getElementById('st-canchas').textContent = `${finalizadasCanchas}/${canchas.length}`;
