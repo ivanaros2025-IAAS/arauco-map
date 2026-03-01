@@ -142,7 +142,7 @@ function mostrarBannerActualizacion() {
   }
   .upload-zone:hover, .upload-zone.drag { border-color: var(--moss); background: var(--moss)10; }
   .upload-zone.loaded { border-color: var(--lime); border-style: solid; background: var(--lime)08; }
-  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 10; font-size: 16px; }
   .upload-icon { font-size: 28px; margin-bottom: 8px; }
   .upload-label { font-size: 13px; font-weight: 700; color: var(--forest); }
   .upload-sub { font-size: 11px; color: var(--muted); font-family: 'Space Mono', monospace; margin-top: 4px; }
@@ -712,15 +712,20 @@ function handleFile(file, type) {
 // PDF PARSING — usando PDF.js desde CDN
 // ══════════════════════════════════════════════
 function loadPDFJS() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (window.pdfjsLib) { resolve(); return; }
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
     s.onload = () => {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      resolve();
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve();
+      } catch(e) {
+        reject(new Error('PDF.js cargó pero no se pudo inicializar: ' + e.message));
+      }
     };
+    s.onerror = () => reject(new Error('No se pudo cargar PDF.js. Verifica tu conexión a internet e intenta de nuevo.'));
     document.head.appendChild(s);
   });
 }
@@ -924,7 +929,13 @@ async function procesarArchivos() {
   try {
     setProgress(10);
     log('Cargando motor PDF...');
-    await loadPDFJS();
+
+    // Timeout de 15 segundos para cargar PDF.js
+    await Promise.race([
+      loadPDFJS(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado cargando PDF.js (15s). Revisa tu conexión.')), 15000))
+    ]);
+    log('Motor PDF listo ✓', 'ok');
     setProgress(20);
 
     log('Procesando GeoPDF...');
@@ -1263,7 +1274,6 @@ function handleMapClick(e) {
 // POPUP
 // ══════════════════════════════════════════════
 function showPopup(f, screenX, screenY) {
-  const popup = document.getElementById('feature-popup');
   const container = document.getElementById('map-container');
   const rect = container.getBoundingClientRect();
 
@@ -1293,13 +1303,13 @@ function showPopup(f, screenX, screenY) {
   document.getElementById('popup-body').innerHTML = rows;
 
   // Position popup — siempre dentro del área visible
-  const popup = document.getElementById('feature-popup');
-  popup.style.visibility = 'hidden';
-  popup.classList.add('visible');
-  const popW = popup.offsetWidth || 240;
-  const popH = popup.offsetHeight || 280;
-  popup.classList.remove('visible');
-  popup.style.visibility = '';
+  const popupEl = document.getElementById('feature-popup');
+  popupEl.style.visibility = 'hidden';
+  popupEl.classList.add('visible');
+  const popW = popupEl.offsetWidth || 240;
+  const popH = popupEl.offsetHeight || 280;
+  popupEl.classList.remove('visible');
+  popupEl.style.visibility = '';
 
   const margin = 10;
   let px = screenX - rect.left + 14;
@@ -1314,9 +1324,9 @@ function showPopup(f, screenX, screenY) {
   // Si se sale por la izquierda
   if (px < margin) px = margin;
 
-  popup.style.left = px + 'px';
-  popup.style.top = py + 'px';
-  popup.classList.add('visible');
+  popupEl.style.left = px + 'px';
+  popupEl.style.top = py + 'px';
+  popupEl.classList.add('visible');
 }
 function closePopup() { document.getElementById('feature-popup').classList.remove('visible'); }
 
